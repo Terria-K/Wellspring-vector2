@@ -729,6 +729,160 @@ uint8_t Wellspring_TextBounds(
 	);
 }
 
+uint8_t Wellspring_AddToTextBatchVector2(
+	Wellspring_TextBatch *textBatch,
+	int pixelSize,
+	Wellspring_Color *color,
+	float x, float y,
+	const uint8_t *strBytes,
+	uint32_t strLengthInBytes
+) {
+	Batch *batch = (Batch*) textBatch;
+	Font *font = batch->currentFont;
+	Packer *myPacker = &font->packer;
+	uint32_t decodeState = 0;
+	uint32_t codepoint;
+	int32_t glyphIndex;
+	int32_t previousGlyphIndex = -1;
+	int32_t rangeIndex;
+	PackedChar *rangeData;
+	Quad charQuad;
+	uint32_t vertexBufferIndex;
+	uint32_t indexBufferIndex;
+	uint32_t i, j;
+	float sizeFactor = pixelSize / font->pixelsPerEm;
+
+	for (i = 0; i < strLengthInBytes; i += 1)
+	{
+		if (decode(&decodeState, &codepoint, strBytes[i]))
+		{
+			if (decodeState == UTF8_REJECT)
+			{
+				/* Something went wrong while decoding UTF-8. */
+				return 0;
+			}
+
+			continue;
+		}
+
+		rangeData = NULL;
+
+		/* Find the packed char data */
+		for (j = 0; j < myPacker->rangeCount; j += 1)
+		{
+			if (
+				codepoint >= myPacker->ranges[j].firstCodepoint &&
+				codepoint < myPacker->ranges[j].firstCodepoint + myPacker->ranges[j].charCount
+			) {
+				rangeData = myPacker->ranges[j].data;
+				rangeIndex = codepoint - myPacker->ranges[j].firstCodepoint;
+				break;
+			}
+		}
+
+		if (rangeData == NULL)
+		{
+			/* Requested char wasn't packed! */
+			return 0;
+		}
+
+		if (IsWhitespace(codepoint))
+		{
+			PackedChar *packedChar = rangeData + rangeIndex;
+			x += sizeFactor * font->scale * packedChar->xAdvance;
+			previousGlyphIndex = -1;
+			continue;
+		}
+
+		glyphIndex = stbtt_FindGlyphIndex(&font->fontInfo, codepoint);
+
+		if (previousGlyphIndex != -1)
+		{
+			x += sizeFactor * font->kerningScale * font->scale * stbtt_GetGlyphKernAdvance(&font->fontInfo, previousGlyphIndex, glyphIndex);
+		}
+
+		GetPackedQuad(
+			rangeData,
+			sizeFactor * font->scale,
+			myPacker->width,
+			myPacker->height,
+			rangeIndex,
+			&x,
+			&y,
+			&charQuad
+		);
+
+		if (batch->vertexCount >= batch->vertexCapacity)
+		{
+			batch->vertexCapacity *= 2;
+			batch->vertices = Wellspring_realloc(batch->vertices, sizeof(Wellspring_Vertex) * batch->vertexCapacity);
+		}
+
+		if (batch->indexCount >= batch->indexCapacity)
+		{
+			batch->indexCapacity *= 2;
+			batch->indices = Wellspring_realloc(batch->indices, sizeof(uint32_t) * batch->indexCapacity);
+		}
+
+		vertexBufferIndex = batch->vertexCount;
+		indexBufferIndex = batch->indexCount;
+
+		batch->vertices[vertexBufferIndex].x = charQuad.x0;
+		batch->vertices[vertexBufferIndex].y = charQuad.y0;
+		batch->vertices[vertexBufferIndex].z = 0;
+		batch->vertices[vertexBufferIndex].u = charQuad.s0;
+		batch->vertices[vertexBufferIndex].v = charQuad.t0;
+		batch->vertices[vertexBufferIndex].r = color->r;
+		batch->vertices[vertexBufferIndex].g = color->g;
+		batch->vertices[vertexBufferIndex].b = color->b;
+		batch->vertices[vertexBufferIndex].a = color->a;
+
+		batch->vertices[vertexBufferIndex + 1].x = charQuad.x0;
+		batch->vertices[vertexBufferIndex + 1].y = charQuad.y1;
+		batch->vertices[vertexBufferIndex + 1].z = 0;
+		batch->vertices[vertexBufferIndex + 1].u = charQuad.s0;
+		batch->vertices[vertexBufferIndex + 1].v = charQuad.t1;
+		batch->vertices[vertexBufferIndex + 1].r = color->r;
+		batch->vertices[vertexBufferIndex + 1].g = color->g;
+		batch->vertices[vertexBufferIndex + 1].b = color->b;
+		batch->vertices[vertexBufferIndex + 1].a = color->a;
+
+		batch->vertices[vertexBufferIndex + 2].x = charQuad.x1;
+		batch->vertices[vertexBufferIndex + 2].y = charQuad.y0;
+		batch->vertices[vertexBufferIndex + 2].z = 0;
+		batch->vertices[vertexBufferIndex + 2].u = charQuad.s1;
+		batch->vertices[vertexBufferIndex + 2].v = charQuad.t0;
+		batch->vertices[vertexBufferIndex + 2].r = color->r;
+		batch->vertices[vertexBufferIndex + 2].g = color->g;
+		batch->vertices[vertexBufferIndex + 2].b = color->b;
+		batch->vertices[vertexBufferIndex + 2].a = color->a;
+
+		batch->vertices[vertexBufferIndex + 3].x = charQuad.x1;
+		batch->vertices[vertexBufferIndex + 3].y = charQuad.y1;
+		batch->vertices[vertexBufferIndex + 3].z = 0;
+		batch->vertices[vertexBufferIndex + 3].u = charQuad.s1;
+		batch->vertices[vertexBufferIndex + 3].v = charQuad.t1;
+		batch->vertices[vertexBufferIndex + 3].r = color->r;
+		batch->vertices[vertexBufferIndex + 3].g = color->g;
+		batch->vertices[vertexBufferIndex + 3].b = color->b;
+		batch->vertices[vertexBufferIndex + 3].a = color->a;
+
+		batch->indices[indexBufferIndex]     = vertexBufferIndex;
+		batch->indices[indexBufferIndex + 1] = vertexBufferIndex + 1;
+		batch->indices[indexBufferIndex + 2] = vertexBufferIndex + 2;
+		batch->indices[indexBufferIndex + 3] = vertexBufferIndex + 2;
+		batch->indices[indexBufferIndex + 4] = vertexBufferIndex + 1;
+		batch->indices[indexBufferIndex + 5] = vertexBufferIndex + 3;
+
+		batch->vertexCount += 4;
+		batch->indexCount += 6;
+
+		previousGlyphIndex = glyphIndex;
+	}
+
+	return 1;
+}
+
 uint8_t Wellspring_AddToTextBatch(
 	Wellspring_TextBatch *textBatch,
 	int pixelSize,

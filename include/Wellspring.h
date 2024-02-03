@@ -138,6 +138,15 @@ WELLSPRINGAPI uint8_t Wellspring_TextBounds(
 	Wellspring_Rectangle *pRectangle
 );
 
+WELLSPRINGAPI uint8_t Wellspring_AddToTextBatchVector2(
+	Wellspring_TextBatch *textBatch,
+	int pixelSize,
+	Wellspring_Color *color,
+	float x, float y,
+	const uint8_t *strBytes,
+	uint32_t strLengthInBytes
+);
+
 WELLSPRINGAPI uint8_t Wellspring_AddToTextBatch(
 	Wellspring_TextBatch *textBatch,
 	int pixelSize,
