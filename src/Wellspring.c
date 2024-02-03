@@ -176,6 +176,15 @@ typedef struct Batch
 	Font *currentFont;
 } Batch;
 
+typedef struct InstanceBatch
+{
+	Wellspring_Instance *instances;
+	uint32_t instanceCount;
+	uint32_t instanceCapacity;
+
+	Font *currentFont;
+} InstanceBatch;
+
 typedef struct Quad
 {
    float x0,y0,s0,t0; // top-left
@@ -503,6 +512,17 @@ Wellspring_TextBatch* Wellspring_CreateTextBatch(void)
 	return (Wellspring_TextBatch*) batch;
 }
 
+Wellspring_TextBatch* Wellspring_CreateTextInstanceBatch(void)
+{
+	InstanceBatch *batch = Wellspring_malloc(sizeof(InstanceBatch));
+
+	batch->instanceCapacity = INITIAL_QUAD_CAPACITY;
+	batch->instances = Wellspring_malloc(sizeof(Wellspring_Instance) * batch->instanceCapacity);
+	batch->instanceCount = 0;
+
+	return (Wellspring_TextBatch*) batch;
+}
+
 void Wellspring_StartTextBatch(
 	Wellspring_TextBatch *textBatch,
 	Wellspring_Font *font
@@ -511,6 +531,15 @@ void Wellspring_StartTextBatch(
 	batch->currentFont = (Font*) font;
 	batch->vertexCount = 0;
 	batch->indexCount = 0;
+}
+
+void Wellspring_StartTextInstanceBatch(
+	Wellspring_TextBatch *textBatch,
+	Wellspring_Font *font
+) {
+	InstanceBatch *batch = (InstanceBatch*) textBatch;
+	batch->currentFont = (Font*) font;
+	batch->instanceCount = 0;
 }
 
 static float Wellspring_INTERNAL_GetVerticalAlignOffset(
@@ -727,6 +756,125 @@ uint8_t Wellspring_TextBounds(
 		strLengthInBytes,
 		pRectangle
 	);
+}
+
+uint8_t Wellspring_AddToTextInstanceBatchVector2(
+	Wellspring_TextBatch *textBatch,
+	int pixelSize,
+	Wellspring_Color *color,
+	float x, float y,
+	const uint8_t *strBytes,
+	uint32_t strLengthInBytes
+) {
+	InstanceBatch *batch = (InstanceBatch*) textBatch;
+	Font *font = batch->currentFont;
+	Packer *myPacker = &font->packer;
+	uint32_t decodeState = 0;
+	uint32_t codepoint;
+	int32_t glyphIndex;
+	int32_t previousGlyphIndex = -1;
+	int32_t rangeIndex;
+	PackedChar *rangeData;
+	Quad charQuad;
+	uint32_t instanceBufferIndex;
+	uint32_t i, j;
+	float sizeFactor = pixelSize / font->pixelsPerEm;
+
+	y -= sizeFactor * font->scale * font->ascender;
+
+	for (i = 0; i < strLengthInBytes; i += 1)
+	{
+		if (decode(&decodeState, &codepoint, strBytes[i]))
+		{
+			if (decodeState == UTF8_REJECT)
+			{
+				/* Something went wrong while decoding UTF-8. */
+				return 0;
+			}
+
+			continue;
+		}
+
+		rangeData = NULL;
+
+		/* Find the packed char data */
+		for (j = 0; j < myPacker->rangeCount; j += 1)
+		{
+			if (
+				codepoint >= myPacker->ranges[j].firstCodepoint &&
+				codepoint < myPacker->ranges[j].firstCodepoint + myPacker->ranges[j].charCount
+			) {
+				rangeData = myPacker->ranges[j].data;
+				rangeIndex = codepoint - myPacker->ranges[j].firstCodepoint;
+				break;
+			}
+		}
+
+		if (rangeData == NULL)
+		{
+			/* Requested char wasn't packed! */
+			return 0;
+		}
+
+		if (IsWhitespace(codepoint))
+		{
+			PackedChar *packedChar = rangeData + rangeIndex;
+			x += sizeFactor * font->scale * packedChar->xAdvance;
+			previousGlyphIndex = -1;
+			continue;
+		}
+
+		glyphIndex = stbtt_FindGlyphIndex(&font->fontInfo, codepoint);
+
+		if (previousGlyphIndex != -1)
+		{
+			x += sizeFactor * font->kerningScale * font->scale * stbtt_GetGlyphKernAdvance(&font->fontInfo, previousGlyphIndex, glyphIndex);
+		}
+
+		GetPackedQuad(
+			rangeData,
+			sizeFactor * font->scale,
+			myPacker->width,
+			myPacker->height,
+			rangeIndex,
+			&x,
+			&y,
+			&charQuad
+		);
+
+		if (batch->instanceCount >= batch->instanceCapacity)
+		{
+			batch->instanceCapacity *= 2;
+			batch->instances = Wellspring_realloc(batch->instances, sizeof(Wellspring_Vertex) * batch->instanceCapacity);
+		}
+
+		instanceBufferIndex = batch->instanceCount;
+
+		batch->instances[instanceBufferIndex].x = x;
+		batch->instances[instanceBufferIndex].y = y;
+		batch->instances[instanceBufferIndex].z = 0;
+		batch->instances[instanceBufferIndex].uv0x = charQuad.x0;
+		batch->instances[instanceBufferIndex].uv0y = charQuad.y0;
+		batch->instances[instanceBufferIndex].uv1x = charQuad.x1;
+		batch->instances[instanceBufferIndex].uv1y = charQuad.y1;
+		batch->instances[instanceBufferIndex].uv2x = charQuad.s0;
+		batch->instances[instanceBufferIndex].uv2y = charQuad.t0;
+		batch->instances[instanceBufferIndex].uv3x = charQuad.s1;
+		batch->instances[instanceBufferIndex].uv3y = charQuad.t1;
+		batch->instances[instanceBufferIndex].r = color->r;
+		batch->instances[instanceBufferIndex].g = color->g;
+		batch->instances[instanceBufferIndex].b = color->b;
+		batch->instances[instanceBufferIndex].a = color->a;
+		batch->instances[instanceBufferIndex].scaleX = charQuad.x1;
+		batch->instances[instanceBufferIndex].scaleY = charQuad.y1;
+
+		batch->instanceCount += 1;
+
+
+		previousGlyphIndex = glyphIndex;
+	}
+
+	return 1;
 }
 
 uint8_t Wellspring_AddToTextBatchVector2(

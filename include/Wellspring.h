@@ -85,6 +85,17 @@ typedef struct Wellspring_Vertex
 	uint8_t r, g, b, a;
 } Wellspring_Vertex;
 
+typedef struct Wellspring_Instance
+{
+	float x, y, z;
+	float uv0x, uv0y;
+	float uv1x, uv1y;
+	float uv2x, uv2y;
+	float uv3x, uv3y;
+	float scaleX, scaleY;
+	uint8_t r, g, b, a;
+} Wellspring_Instance;
+
 typedef struct Wellspring_Rectangle
 {
 	float x;
