@@ -752,6 +752,8 @@ uint8_t Wellspring_AddToTextBatchVector2(
 	uint32_t i, j;
 	float sizeFactor = pixelSize / font->pixelsPerEm;
 
+	y -= sizeFactor * font->scale * font->ascender;
+
 	for (i = 0; i < strLengthInBytes; i += 1)
 	{
 		if (decode(&decodeState, &codepoint, strBytes[i]))
