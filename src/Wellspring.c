@@ -845,7 +845,7 @@ uint8_t Wellspring_AddToTextInstanceBatchVector2(
 		if (batch->instanceCount >= batch->instanceCapacity)
 		{
 			batch->instanceCapacity *= 2;
-			batch->instances = Wellspring_realloc(batch->instances, sizeof(Wellspring_Vertex) * batch->instanceCapacity);
+			batch->instances = Wellspring_realloc(batch->instances, sizeof(Wellspring_Instance) * batch->instanceCapacity);
 		}
 
 		instanceBufferIndex = batch->instanceCount;
